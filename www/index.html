@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b3d5c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Arks: Tide Builders</title>
+<style>
+:root{--bg:#06263a;--panel:#0d3550;--panel2:#124463;--acc:#ffc145;--txt:#eaf6ff;--dim:#8fb3c9;--bad:#ff6b6b;--good:#5ee08a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100%;max-width:560px;margin:0 auto;padding-top:env(safe-area-inset-top)}
+#res{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:6px;background:#041c2b;font-size:13px}
+.r{background:var(--panel);border-radius:8px;padding:4px 6px;text-align:center;line-height:1.15}
+.r b{display:block;font-size:14px}.r small{color:var(--dim);font-size:10px}
+#stageBar{padding:4px 8px;background:#041c2b;font-size:12px}
+#prog{height:8px;background:#0a2e45;border-radius:4px;overflow:hidden;margin-top:3px}
+#progFill{height:100%;width:0;background:linear-gradient(90deg,#3ac2ff,#ffc145)}
+#scene{position:relative;flex:0 0 38%;min-height:200px}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#rowBtn{position:absolute;right:8px;bottom:8px;background:var(--acc);color:#2a1a00;border:0;border-radius:24px;padding:10px 16px;font-weight:800;font-size:15px;box-shadow:0 3px 0 #b07d10}
+#rowBtn:active{transform:translateY(2px);box-shadow:0 1px 0 #b07d10}
+#toast{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:#000a;padding:6px 12px;border-radius:14px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#tabs{display:flex;background:#041c2b}
+#tabs button{flex:1;background:none;border:0;color:var(--dim);padding:9px 0;font-size:13px;font-weight:700;border-bottom:3px solid transparent}
+#tabs button.on{color:var(--acc);border-color:var(--acc)}
+#panel{flex:1;overflow-y:auto;padding:8px 8px calc(12px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
+.card{display:flex;align-items:center;gap:10px;background:var(--panel);border-radius:12px;padding:9px;margin-bottom:7px}
+.card .ic{font-size:28px;width:40px;text-align:center}
+.card .info{flex:1;min-width:0}.card .info b{font-size:14px}.card .info p{margin:2px 0 0;font-size:11.5px;color:var(--dim)}
+.btn{background:var(--acc);color:#2a1a00;border:0;border-radius:10px;padding:8px 10px;font-weight:800;font-size:12px;min-width:84px;line-height:1.2}
+.btn:disabled{background:#2c4f66;color:#7f9cb0}
+.btn.sm{min-width:36px;padding:8px 0;font-size:16px}
+.cost{font-size:10.5px;font-weight:600;display:block}
+.lock{opacity:.5}
+h3{margin:6px 2px 8px;font-size:15px}
+.note{font-size:12px;color:var(--dim);margin:4px 2px 10px;line-height:1.4}
+.big{width:100%;padding:12px;font-size:15px;margin:6px 0}
+#modal{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;z-index:9;padding:20px}
+#modal .box{background:var(--panel2);border-radius:16px;padding:18px;max-width:380px;width:100%;text-align:center}
+#modal h2{margin:0 0 8px}#modal p{color:var(--dim);font-size:14px;line-height:1.45}
+.ach{display:inline-block;margin:3px;padding:4px 8px;border-radius:8px;background:#0a2e45;font-size:11px;color:var(--dim)}
+.ach.got{background:#3d5a1a;color:#d8ffb0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="res"></div>
+  <div id="stageBar"><span id="stageTxt"></span><div id="prog"><div id="progFill"></div></div></div>
+  <div id="scene"><canvas id="cv"></canvas><button id="rowBtn">🚣 Row!</button><div id="toast"></div></div>
+  <div id="tabs">
+    <button data-t="build" class="on">Build</button><button data-t="crew">Crew</button><button data-t="upg">Upgrades</button><button data-t="voy">Voyage</button>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="modal"><div class="box"><h2 id="mT"></h2><p id="mB"></p><button class="btn big" id="mOk">OK</button></div></div>
+<script>
+"use strict";
+// ================= DATA =================
+const MAX_STAGE = 100;
+const RES = {wood:"🪵",scrap:"🔩",cloth:"🧵",food:"🐟"};
+const MODULES = {
+  platform:{n:"Platform",ic:"🟫",d:"+1 build tile, +5 hull",cost:{wood:10},g:1.14,tile:false},
+  net:{n:"Drift Net",ic:"🕸️",d:"Catches debris: +0.6 wood/s, +0.05 scrap/s",cost:{wood:15},g:1.17},
+  hut:{n:"Shelter",ic:"🛖",d:"+2 crew capacity",cost:{wood:40,scrap:5},g:1.25},
+  garden:{n:"Kelp Garden",ic:"🌿",d:"+1 food/s",cost:{wood:60,scrap:10},g:1.2},
+  sail:{n:"Sail",ic:"⛵",d:"+1.5 m/s speed",cost:{wood:50,cloth:5},g:1.22},
+  loom:{n:"Loom",ic:"🧶",d:"+0.12 cloth/s",cost:{wood:80,scrap:20},g:1.22,unlock:3},
+  bulwark:{n:"Bulwark",ic:"🛡️",d:"+25 hull strength",cost:{wood:100,scrap:60},g:1.2,unlock:5},
+  workshop:{n:"Workshop",ic:"🛠️",d:"+10% all production",cost:{wood:150,scrap:40},g:1.28,unlock:8},
+  engine:{n:"Steam Engine",ic:"⚙️",d:"+6 m/s speed",cost:{scrap:300,cloth:40},g:1.3,unlock:15},
+  beacon:{n:"Lighthouse",ic:"🗼",d:"Storms do no harm, +25% debris (max 3)",cost:{wood:500,scrap:200,cloth:50},g:2.2,unlock:12,max:3},
+};
+const JOBS = {
+  gatherer:{n:"Gatherer",ic:"🪓",d:"+0.4 wood/s"},
+  scavenger:{n:"Scavenger",ic:"🧲",d:"+0.15 scrap/s"},
+  fisher:{n:"Fisher",ic:"🎣",d:"+0.6 food/s"},
+  rower:{n:"Rower",ic:"🚣",d:"+0.5 m/s speed"},
+  weaver:{n:"Weaver",ic:"🪡",d:"+0.06 cloth/s"},
+};
+const UPGRADES = {
+  hooks:{n:"Sharper Hooks",ic:"🪝",d:"Tap debris worth x1.6 more",cost:{scrap:20},g:2.4},
+  nets:{n:"Wide Mesh",ic:"🕸️",d:"Nets +50% output",cost:{wood:200,scrap:50},g:2.6},
+  rations:{n:"Rations",ic:"🥫",d:"Crew eat 15% less",cost:{food:150,scrap:40},g:2.5,max:5},
+  oars:{n:"Long Oars",ic:"🛶",d:"Rowers +50% speed",cost:{wood:300,cloth:20},g:2.6},
+  tools:{n:"Steel Tools",ic:"🔨",d:"Crew jobs +40% output",cost:{scrap:150,cloth:30},g:2.7},
+  hull:{n:"Tar & Pitch",ic:"🪣",d:"Hull strength +20%",cost:{wood:400,scrap:150},g:2.5},
+  magnet:{n:"Debris Lure",ic:"🧿",d:"More debris drifts by (+20%)",cost:{scrap:250,cloth:40},g:3,max:5},
+};
+const DEBRIS = [
+  {k:"wood",ic:"🪵",w:50,v:3},{k:"plank",ic:"🪵",w:0,v:0},
+  {k:"scrap",ic:"🔩",w:22,v:1.2},{k:"cloth",ic:"🧵",w:10,v:0.8},
+  {k:"barrel",ic:"🛢️",w:10,v:6},{k:"survivor",ic:"🙋",w:3},{k:"chest",ic:"🎁",w:2},
+];
+const ACH = [
+  ["Afloat","Build 5 platforms",s=>s.mod.platform>=5],["Fisherman","Have 3 crew",s=>s.crew>=3],
+  ["First Shore","Reach stage 5",s=>s.best>=5],["Storm Rider","Beat the stage 10 storm wall",s=>s.best>=11],
+  ["Flotilla","Build 25 platforms",s=>s.mod.platform>=25],["Village","Have 15 crew",s=>s.crew>=15],
+  ["Halfway","Reach stage 50",s=>s.best>=50],["Engineer","Build 5 engines",s=>s.mod.engine>=5],
+  ["New Tides","Prestige once",s=>s.prestiges>=1],["Tapper","Tap 500 debris",s=>s.taps>=500],
+  ["Legend of the Deep","Reach stage 100",s=>s.best>=100],["Pearl Diver","Hold 100 pearls",s=>s.pearls>=100],
+];
+
+// ================= STATE =================
+function fresh(keep){
+  const s={wood:20,scrap:0,cloth:0,food:20,crew:1,jobs:{},mod:{},upg:{},stage:1,dist:0,
+    pearls:0,prestiges:0,best:1,taps:0,ach:{},t:Date.now(),boost:0,storm:0,won:false};
+  for(const k in MODULES)s.mod[k]=0; s.mod.platform=4;
+  for(const k in JOBS)s.jobs[k]=0; s.jobs.gatherer=1;
+  for(const k in UPGRADES)s.upg[k]=0;
+  if(keep){s.pearls=keep.pearls;s.prestiges=keep.prestiges;s.best=keep.best;s.taps=keep.taps;s.ach=keep.ach;s.won=keep.won}
+  return s;
+}
+let S;
+try{S=JSON.parse(localStorage.getItem("arks_save"))}catch(e){}
+if(!S||!S.mod){S=fresh()}else{const f=fresh();for(const k in f)if(S[k]===undefined)S[k]=f[k];for(const g of["mod","jobs","upg"])for(const k in f[g])if(S[g][k]===undefined)S[g][k]=f[g][k]}
+const save=()=>{S.t=Date.now();localStorage.setItem("arks_save",JSON.stringify(S))};
+
+// ================= FORMULAS =================
+const fmt=n=>{if(n<1000)return n<10&&n%1?n.toFixed(1):Math.floor(n)+"";const u=["K","M","B","T","Qa","Qi"];let i=-1;while(n>=1000&&i<u.length-1){n/=1000;i++}return n.toFixed(n<10?2:n<100?1:0)+u[i]};
+const pearlMult=()=>1+S.pearls*0.1;
+const prodMult=()=>(1+S.mod.workshop*0.1)*pearlMult();
+const usedTiles=()=>{let n=0;for(const k in MODULES)if(MODULES[k].tile!==false)n+=S.mod[k];return n};
+const freeTiles=()=>S.mod.platform-usedTiles();
+const crewCap=()=>2+S.mod.hut*2;
+const assigned=()=>Object.values(S.jobs).reduce((a,b)=>a+b,0);
+function costOf(def,owned){const c={};for(const r in def.cost)c[r]=Math.ceil(def.cost[r]*Math.pow(def.g,owned));return c}
+const canPay=c=>Object.keys(c).every(r=>S[r]>=c[r]);
+const pay=c=>{for(const r in c)S[r]-=c[r]};
+const costTxt=c=>Object.keys(c).map(r=>RES[r]+fmt(c[r])).join(" ");
+function rates(){
+  const m=prodMult(), tool=1+S.upg.tools*0.4, starving=S.food<=0;
+  const sm=starving?0.5:1;
+  const netM=1+S.upg.nets*0.5;
+  const r={
+    wood:(S.mod.net*0.6*netM + S.jobs.gatherer*0.4*tool)*m*sm,
+    scrap:(S.mod.net*0.05*netM + S.jobs.scavenger*0.15*tool)*m*sm,
+    cloth:(S.mod.loom*0.12 + S.jobs.weaver*0.06*tool)*m*sm,
+    food:(S.mod.garden*1 + S.jobs.fisher*0.6*tool)*m - S.crew*0.2*Math.pow(0.85,S.upg.rations),
+  };
+  return r;
+}
+function speed(){
+  const sm=S.food<=0?0.5:1;
+  let v=(1+S.mod.sail*1.5+S.mod.engine*6+S.jobs.rower*0.5*(1+S.upg.oars*0.5)*(1+S.upg.tools*0.4))*pearlMult()*sm;
+  if(S.boost>0)v*=2;
+  return v;
+}
+const stageLen=s=>Math.round(60*Math.pow(1.085,s-1));
+const hull=()=>Math.round((S.mod.platform*5+S.mod.bulwark*25)*(1+S.upg.hull*0.2)*pearlMult());
+const wallReq=s=>Math.round(45*Math.pow(s/10,1.75));
+const isWall=s=>s%10===0;
+const tapMult=()=>Math.pow(1.6,S.upg.hooks)*(1+S.stage*0.08)*pearlMult();
+const pearlGain=()=>Math.floor(Math.pow(Math.max(0,S.stage-15),1.35)/4);
+
+// ================= CANVAS SCENE =================
+const cv=document.getElementById("cv"),cx=cv.getContext("2d");
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(2,window.devicePixelRatio||1);const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*DPR;cv.height=H*DPR;cx.setTransform(DPR,0,0,DPR,0,0)}
+window.addEventListener("resize",resize);
+let debris=[],floats=[],birds=[],time=0,spawnT=0;
+function spawnDebris(){
+  let tot=0;for(const d of DEBRIS)tot+=d.w;let x=Math.random()*tot,pick=DEBRIS[0];
+  for(const d of DEBRIS){x-=d.w;if(x<=0){pick=d;break}}
+  const sea=H*0.55;
+  debris.push({d:pick,x:W+20,y:sea+10+Math.random()*(H-sea-30),ph:Math.random()*6,v:15+Math.random()*15});
+}
+function collect(o,tapped){
+  const d=o.d,tm=tapMult();let txt="";
+  if(d.k==="survivor"){if(S.crew<crewCap()){S.crew++;txt="+1 crew 🙋"}else{S.food+=10*tm;txt="No room… +food"}}
+  else if(d.k==="chest"){const r=rates();let parts=[];for(const k of["wood","scrap","cloth"]){const g=Math.max(r[k]*45,10*tm);S[k]+=g;parts.push(RES[k]+fmt(g))}txt=parts.join(" ")}
+  else if(d.k==="barrel"){const g=d.v*tm;S.food+=g;txt="+"+fmt(g)+"🐟"}
+  else{const g=d.v*tm;S[d.k]+=g;txt="+"+fmt(g)+RES[d.k]}
+  if(tapped)S.taps++;
+  floats.push({x:o.x,y:o.y,t:txt,a:1});
+}
+cv.addEventListener("pointerdown",e=>{
+  const r=cv.getBoundingClientRect(),px=e.clientX-r.left,py=e.clientY-r.top;
+  let best=null,bd=40;
+  for(const o of debris){const dd=Math.hypot(o.x-px,o.y-py);if(dd<bd){bd=dd;best=o}}
+  if(best){collect(best,true);debris.splice(debris.indexOf(best),1);sfx(660)}
+});
+function drawScene(dt){
+  time+=dt;
+  const night=(Math.sin(time/60)+1)/2; // slow day cycle
+  const storm=S.storm>0;
+  const sky=cx.createLinearGradient(0,0,0,H*0.55);
+  const top=storm?"#2b3440":lerpC([94,180,240],[12,20,48],night),bot=storm?"#56606b":lerpC([255,214,165],[40,50,90],night);
+  sky.addColorStop(0,top);sky.addColorStop(1,bot);cx.fillStyle=sky;cx.fillRect(0,0,W,H*0.55);
+  // sun / moon
+  cx.font="28px serif";cx.textAlign="center";cx.textBaseline="middle";
+  if(!storm)cx.fillText(night>0.5?"🌙":"☀️",W*0.82,H*0.14+night*10);
+  // island approaching
+  const len=stageLen(S.stage),p=S.dist/len;
+  if(p>0.75){const ix=W+60-(p-0.75)/0.25*(W*0.45);cx.font="54px serif";cx.fillText(isWall(S.stage)?"🌪️":"🏝️",ix,H*0.5)}
+  // birds
+  if(Math.random()<dt*0.15&&!storm)birds.push({x:-10,y:H*0.1+Math.random()*H*0.25,v:30+Math.random()*20});
+  cx.font="14px serif";
+  birds=birds.filter(b=>{b.x+=b.v*dt;cx.fillText("🕊️",b.x,b.y+Math.sin(time*5+b.x)*3);return b.x<W+20});
+  // sea
+  const sea=H*0.55;
+  const g2=cx.createLinearGradient(0,sea,0,H);g2.addColorStop(0,storm?"#24485c":"#1f7fb0");g2.addColorStop(1,"#073049");
+  cx.fillStyle=g2;cx.beginPath();cx.moveTo(0,sea);
+  for(let x=0;x<=W;x+=8)cx.lineTo(x,sea+Math.sin(x/30+time*2)*(storm?6:3));
+  cx.lineTo(W,H);cx.lineTo(0,H);cx.fill();
+  // ark
+  drawArk(sea);
+  // debris
+  const rate=(0.55+S.mod.beacon*0.25)*(1+S.upg.magnet*0.2)*(S.boost>0?1.5:1);
+  spawnT+=dt*rate;while(spawnT>1){spawnT-=1;spawnDebris()}
+  cx.font="24px serif";
+  const arkR=W*0.5;
+  debris=debris.filter(o=>{
+    o.x-=o.v*dt*(1+Math.min(2,speed()/40));
+    const y=o.y+Math.sin(time*2+o.ph)*3;
+    cx.fillText(o.d.ic,o.x,y);
+    if(o.d.k==="chest"){cx.strokeStyle="#ffd54a";cx.beginPath();cx.arc(o.x,y,16+Math.sin(time*6)*2,0,7);cx.stroke()}
+    if(o.x<-20)return false;
+    return true;
+  });
+  // floats
+  cx.font="bold 13px system-ui";
+  floats=floats.filter(f=>{f.y-=25*dt;f.a-=dt*0.8;cx.globalAlpha=Math.max(0,f.a);cx.fillStyle="#fff";cx.strokeStyle="#000";cx.lineWidth=3;cx.strokeText(f.t,f.x,f.y);cx.fillText(f.t,f.x,f.y);cx.globalAlpha=1;return f.a>0});
+  if(storm){cx.strokeStyle="#9fc3dd88";cx.lineWidth=1;for(let i=0;i<40;i++){const x=(i*53+time*300)%W,y=(i*97+time*500)%H;cx.beginPath();cx.moveTo(x,y);cx.lineTo(x-4,y+12);cx.stroke()}
+    if(Math.random()<0.01){cx.fillStyle="#fff6";cx.fillRect(0,0,W,H)}}
+}
+function lerpC(a,b,t){return`rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(",")})`}
+function drawArk(sea){
+  const n=S.mod.platform,cols=Math.min(12,Math.ceil(Math.sqrt(n*2.2))),rows=Math.ceil(n/cols);
+  const ts=Math.max(10,Math.min(26,(W*0.55)/cols,(H*0.3)/Math.max(1,rows)));
+  const aw=cols*ts,x0=W*0.42-aw/2,bob=Math.sin(time*1.6)*2,y0=sea-rows*ts*0.45+bob;
+  // build icon list
+  const icons=[];for(const k in MODULES)if(MODULES[k].tile!==false)for(let i=0;i<S.mod[k];i++)icons.push(MODULES[k].ic);
+  cx.font=Math.floor(ts*0.8)+"px serif";
+  for(let i=0;i<n;i++){
+    const c=i%cols,r=Math.floor(i/cols),x=x0+c*ts,y=y0+r*ts*0.6;
+    cx.fillStyle=(c+r)%2?"#8b5a2b":"#9c6935";cx.fillRect(x,y,ts-1,ts*0.6-1);
+    cx.fillStyle="#5d3a17";cx.fillRect(x,y+ts*0.6-3,ts-1,2);
+  }
+  for(let i=0;i<icons.length&&i<n;i++){const c=i%cols,r=Math.floor(i/cols);cx.fillText(icons[i],x0+c*ts+ts/2,y0+r*ts*0.6-ts*0.15)}
+  // crew
+  cx.font=Math.floor(ts*0.6)+"px serif";
+  const shown=Math.min(S.crew,8);
+  for(let i=0;i<shown;i++)cx.fillText("🧍",x0+((i*37)%Math.max(1,aw-ts))+ts/2,y0-ts*0.3+Math.sin(time*3+i)*1.5);
+}
+
+// ================= SOUND =================
+let ac=null;
+function sfx(f){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;o.type="triangle";g.gain.setValueAtTime(0.06,ac.currentTime);g.gain.exponentialRampToValueAtTime(0.0001,ac.currentTime+0.15);o.connect(g).connect(ac.destination);o.start();o.stop(ac.currentTime+0.16)}catch(e){}}
+
+// ================= GAME LOOP =================
+let toastT=0;
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.style.opacity=1;toastT=2.5}
+function modal(t,b){document.getElementById("mT").textContent=t;document.getElementById("mB").innerHTML=b;document.getElementById("modal").style.display="flex"}
+document.getElementById("mOk").onclick=()=>document.getElementById("modal").style.display="none";
+
+function tick(dt,offline){
+  const r=rates();
+  for(const k of["wood","scrap","cloth"])S[k]+=r[k]*dt;
+  S.food=Math.max(0,S.food+r.food*dt);
+  if(S.boost>0)S.boost=Math.max(0,S.boost-dt);
+  if(S.storm>0){S.storm-=dt;if(!offline&&S.mod.beacon===0)S.wood=Math.max(0,S.wood-S.wood*0.01*dt)}
+  else if(!offline&&Math.random()<dt/240&&S.stage>3){S.storm=20;toast(S.mod.beacon?"⛈️ Storm! Your lighthouse keeps you safe":"⛈️ Storm! You're losing wood…")}
+  advance(speed()*dt,offline);
+}
+function advance(m,offline){
+  if(S.won&&S.stage>=MAX_STAGE&&S.dist>=stageLen(S.stage))return;
+  while(m>0){
+    const len=stageLen(S.stage);
+    if(isWall(S.stage)&&S.dist>=len*0.97&&hull()<wallReq(S.stage)){S.dist=len*0.97;return}
+    const need=len-S.dist;
+    if(m<need){S.dist+=m;return}
+    m-=need;S.dist=len;arrive(offline);
+    if(S.stage>=MAX_STAGE&&S.dist>=stageLen(S.stage))return;
+  }
+}
+function arrive(offline){
+  const s=S.stage;
+  const g=10*Math.pow(1.12,s)*pearlMult();
+  S.wood+=g*3;S.scrap+=g;S.cloth+=g*0.3;S.food+=g;
+  let msg=`Stage ${s} cleared! +${RES.wood}${fmt(g*3)} ${RES.scrap}${fmt(g)} ${RES.cloth}${fmt(g*0.3)}`;
+  if(Math.random()<0.5&&S.crew<crewCap()){S.crew++;msg+=" +1 crew"}
+  if(s>=MAX_STAGE){
+    if(!S.won){S.won=true;S.best=MAX_STAGE;if(!offline)modal("🏆 You found the Last Shore!","Your ark crossed all 100 stages of the open sea. Seek New Tides in the Voyage tab to start again stronger, or keep building.");}
+    return;
+  }
+  S.stage++;S.dist=0;S.best=Math.max(S.best,S.stage);
+  if(!offline){toast(msg);sfx(880)}
+}
+document.getElementById("rowBtn").onclick=()=>{S.boost=Math.min(S.boost+3,30);sfx(440);toast("🚣 Rowing hard! x2 speed ("+Math.ceil(S.boost)+"s)")};
+
+// offline progress
+(function(){const dt=Math.min(8*3600,(Date.now()-S.t)/1000);if(dt>60){const before={w:S.wood,s:S.scrap,c:S.cloth,st:S.stage};const steps=200;for(let i=0;i<steps;i++)tick(dt/steps*0.5,true);
+  setTimeout(()=>modal("Welcome back, captain!",`While you were away (${Math.round(dt/60)} min) your crew gathered:<br>${RES.wood} ${fmt(S.wood-before.w)} &nbsp; ${RES.scrap} ${fmt(S.scrap-before.s)} &nbsp; ${RES.cloth} ${fmt(S.cloth-before.c)}<br>Stages sailed: ${S.stage-before.st}`),300)}})();
+
+// ================= UI =================
+let tab="build";
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x===b));render(true)});
+const panel=document.getElementById("panel");
+let lastHTML="";
+function card(ic,title,desc,btns,lock){return`<div class="card ${lock?"lock":""}"><div class="ic">${ic}</div><div class="info"><b>${title}</b><p>${desc}</p></div>${btns}</div>`}
+function render(force){
+  const r=rates();
+  document.getElementById("res").innerHTML=["wood","scrap","cloth","food"].map(k=>`<div class="r">${RES[k]}<b>${fmt(S[k])}</b><small style="color:${r[k]<0?"var(--bad)":""}">${r[k]>=0?"+":""}${fmt(Math.abs(r[k])<0.05?0:r[k])}/s</small></div>`).join("");
+  const len=stageLen(S.stage),wall=isWall(S.stage);
+  let st=`🧭 Stage <b>${S.stage}</b>/${MAX_STAGE} · ${fmt(S.dist)}/${fmt(len)} m · ${fmt(speed())} m/s`;
+  if(wall)st+=` · 🌪️ Storm wall: hull ${fmt(hull())}/${fmt(wallReq(S.stage))}`;
+  if(S.food<=0)st+=` · <span style="color:var(--bad)">Starving! -50%</span>`;
+  document.getElementById("stageTxt").innerHTML=st;
+  document.getElementById("progFill").style.width=Math.min(100,S.dist/len*100)+"%";
+  let h="";
+  if(tab==="build"){
+    h+=`<div class="note">Tiles free: <b>${freeTiles()}</b>/${S.mod.platform} · Hull ${fmt(hull())} · Every 10th stage is a storm wall that needs hull strength to cross.</div>`;
+    for(const k in MODULES){const m=MODULES[k],c=costOf(m,S.mod[k]),lock=m.unlock&&S.best<m.unlock,max=m.max&&S.mod[k]>=m.max;
+      const noTile=m.tile!==false&&freeTiles()<=0;
+      const dis=lock||max||noTile||!canPay(c);
+      const label=lock?`Stage ${m.unlock}`:max?"MAX":noTile?"Need tile":"Build";
+      h+=card(m.ic,`${m.n} <small style="color:var(--dim)">x${S.mod[k]}</small>`,m.d,`<button class="btn" data-b="${k}" ${dis?"disabled":""}>${label}<span class="cost">${lock||max?"":costTxt(c)}</span></button>`,lock)}
+  }else if(tab==="crew"){
+    const idle=S.crew-assigned();
+    h+=`<div class="note">Crew <b>${S.crew}</b>/${crewCap()} · Idle: <b>${idle}</b> · Each crew member eats ${(0.2*Math.pow(0.85,S.upg.rations)).toFixed(2)} food/s. Rescue survivors 🙋 floating by, or find them at islands. Build Shelters for more room.</div>`;
+    for(const k in JOBS){const j=JOBS[k];h+=card(j.ic,`${j.n} <small style="color:var(--dim)">x${S.jobs[k]}</small>`,j.d,`<button class="btn sm" data-j="${k}" data-d="-1" ${S.jobs[k]<=0?"disabled":""}>−</button><button class="btn sm" data-j="${k}" data-d="1" ${idle<=0?"disabled":""}>+</button>`)}
+  }else if(tab==="upg"){
+    for(const k in UPGRADES){const u=UPGRADES[k],c=costOf(u,S.upg[k]),max=u.max&&S.upg[k]>=u.max;
+      h+=card(u.ic,`${u.n} <small style="color:var(--dim)">Lv ${S.upg[k]}</small>`,u.d,`<button class="btn" data-u="${k}" ${max||!canPay(c)?"disabled":""}>${max?"MAX":"Upgrade"}<span class="cost">${max?"":costTxt(c)}</span></button>`)}
+  }else{
+    const pg=pearlGain();
+    h+=`<h3>🦪 Pearls: ${fmt(S.pearls)} <small style="color:var(--dim)">(+${Math.round(S.pearls*10)}% everything)</small></h3>
+    <div class="note">Seek New Tides: start a new voyage from stage 1 with an empty ark, but keep your pearls. Every pearl gives +10% production, speed and hull. Pearls come from how far you sailed (from stage 16 on).</div>
+    <button class="btn big" id="prestige" ${pg<1?"disabled":""}>🌊 Seek New Tides (+${pg} 🦪)</button>
+    <h3>📜 Logbook</h3><div class="note">Best stage: ${S.best} · Voyages: ${S.prestiges+1} · Debris tapped: ${S.taps}</div>
+    <div>${ACH.map(a=>`<span class="ach ${S.ach[a[0]]?"got":""}">${S.ach[a[0]]?"✅":"⬜"} ${a[0]} – ${a[1]}</span>`).join("")}</div>
+    <button class="btn big" id="reset" style="background:#5a2a2a;color:#fbb;margin-top:18px">Wipe save</button>`;
+  }
+  if(h!==lastHTML||force){panel.innerHTML=h;lastHTML=h}
+}
+panel.addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b||b.disabled)return;
+  if(b.dataset.b){const k=b.dataset.b,c=costOf(MODULES[k],S.mod[k]);if(canPay(c)){pay(c);S.mod[k]++;sfx(520)}}
+  else if(b.dataset.j){const k=b.dataset.j,d=+b.dataset.d;if(d<0&&S.jobs[k]>0)S.jobs[k]--;else if(d>0&&S.crew-assigned()>0)S.jobs[k]++}
+  else if(b.dataset.u){const k=b.dataset.u,c=costOf(UPGRADES[k],S.upg[k]);if(canPay(c)){pay(c);S.upg[k]++;sfx(740)}}
+  else if(b.id==="prestige"){const pg=pearlGain();if(pg>0&&confirm(`Start a new voyage and gain ${pg} pearls?`)){const keep={...S,pearls:S.pearls+pg,prestiges:S.prestiges+1};S=fresh(keep);debris=[];save();toast("🌊 A new voyage begins!")}}
+  else if(b.id==="reset"){if(confirm("Delete ALL progress?")){localStorage.removeItem("arks_save");S=fresh();save()}}
+  render(true);
+});
+function checkAch(){for(const a of ACH)if(!S.ach[a[0]]&&a[2](S)){S.ach[a[0]]=true;toast("🏅 Achievement: "+a[0])}}
+
+let last=performance.now(),uiT=0,saveT=0;
+function frame(now){
+  const dt=Math.min(0.25,(now-last)/1000);last=now;
+  tick(dt,false);
+  if(W===0)resize();
+  drawScene(dt);
+  uiT+=dt;if(uiT>0.25){uiT=0;render();checkAch()}
+  saveT+=dt;if(saveT>5){saveT=0;save()}
+  if(toastT>0){toastT-=dt;if(toastT<=0)document.getElementById("toast").style.opacity=0}
+  requestAnimationFrame(frame);
+}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)save()});
+resize();render(true);requestAnimationFrame(frame);
+if(!localStorage.getItem("arks_seen")){localStorage.setItem("arks_seen",1);modal("⚓ Arks: Tide Builders","The world flooded. All you have is a little raft.<br><br>👆 <b>Tap floating debris</b> to collect it.<br>🔨 <b>Build</b> platforms, nets and shelters.<br>🙋 <b>Rescue survivors</b> and give them jobs.<br>⛵ Sail through <b>100 stages</b> to find the Last Shore!")}
+if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
